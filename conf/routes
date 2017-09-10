@@ -1,0 +1,17 @@
+# Routes
+# This file defines all application routes (Higher priority routes first)
+# ~~~~
+
+# Home page
+GET     /                           controllers.Application.index
+
+# Map static resources from the /public folder to the /assets URL path
+GET     /assets/*file               controllers.Assets.at(path="/public", file)
+
+GET     /operators                  controllers.FlightBookingController.getFlightOperators()
+
+GET     /operators/:operator/flights               controllers.FlightBookingController.getFlights(operator: String)
+
+GET     /operators/:operator/flights/:flight        controllers.FlightBookingController.getFlight(operator: String, flight: String)
+
+GET     /trip/:from/:to                             controllers.FlightBookingController.createTrip(from: String, to: String)
