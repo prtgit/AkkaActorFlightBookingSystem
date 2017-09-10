@@ -28,7 +28,7 @@ public class CAActor extends AbstractActor {
         booking.status = "On Hold";
         booking.trip = holdMessage.getTrip();
         booking.save();
-        sender().tell("The seat is on Hold. Booking id="+booking.id,self());
+        sender().tell(""+booking.id,self());
         startTimer(booking.id);
     }
 
@@ -46,7 +46,7 @@ public class CAActor extends AbstractActor {
             SqlUpdate countFlightQuery = Ebean.createSqlUpdate("UPDATE flight set available_seats = available_seats - 1 where flight_no=(select flight_no from booking where booking.id=:bookingId) and available_seats > 0;");
             countFlightQuery.setParameter("bookingId",""+confirmMessage.getBookingId());
             countFlightQuery.execute();
-            sender().tell("The seat has been booked. Booking id ="+confirmMessage.getBookingId(),self());
+            sender().tell(""+confirmMessage.getBookingId(),self());
         }
         else{
             sender().tell("The seat is not on hold",self());
@@ -60,7 +60,10 @@ public class CAActor extends AbstractActor {
         flightQuery.setParameter("flightNo",""+seats.getFlightNo());
         flightQuery.setParameter("opCode","CA");
         SqlRow flightResult = flightQuery.findOne();
-        sender().tell(flightResult.getString("available_seats"),self());
+        if(flightResult!=null)
+            sender().tell(flightResult.getString("available_seats"),self());
+        else
+            sender().tell("No Such Flight",self());
     }
 
     private void startTimer(Long bookingId) {

@@ -14,4 +14,8 @@ GET     /operators/:operator/flights               controllers.FlightBookingCont
 
 GET     /operators/:operator/flights/:flight        controllers.FlightBookingController.getFlight(operator: String, flight: String)
 
-GET     /trip/:from/:to                             controllers.FlightBookingController.createTrip(from: String, to: String)
+POST     /trip/:from/:to                             controllers.FlightBookingController.createTrip(from: String, to: String)
+
+GET     /trips                      controllers.FlightBookingController.getTrips()
+
+GET     /trips/:tripID              controllers.FlightBookingController.getTrip(tripID: String)

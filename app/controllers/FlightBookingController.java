@@ -11,6 +11,7 @@ import akka.util.Timeout;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.ebean.*;
 import models.Operator;
+import org.apache.commons.lang3.StringUtils;
 import play.libs.Json;
 import play.mvc.Controller;
 import play.mvc.Result;
@@ -24,91 +25,108 @@ import java.util.concurrent.TimeUnit;
 
 public class FlightBookingController extends Controller {
 
-    public Result getFlightOperators(){
-        List<Operator> operators = Ebean.find(Operator.class).select("operatorName").findList();
-        com.fasterxml.jackson.databind.node.ObjectNode operatorsJson = Json.newObject();
+    public Result getFlightOperators() throws Exception {
+        ActorSystem system = ActorSystem.create();
+        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
+        Future<Object> askOperatorts = Patterns.ask(bookingActor, new BookingActorProtocol.Operators(),timeout);
+        ObjectNode operatorsJson = Json.newObject();
         operatorsJson.put("status","success");
-        List<String> operatorStringList = new ArrayList<String>();
-        for(Operator operator:operators){
-            operatorStringList.add(operator.operatorName);
-        }
-        operatorsJson.put("operators",""+operatorStringList);
+        operatorsJson.put("operators",""+(List)Await.result(askOperatorts,timeout.duration()));
         return ok(operatorsJson);
     }
 
-    public Result getFlights(String operator){
-        SqlQuery countQuery = Ebean.createSqlQuery("SELECT COUNT(*) FROM operator WHERE operator.op_code=:operator");
-        countQuery.setParameter("operator",""+operator);
-        SqlRow operatorCount = countQuery.findOne();
-        if(Integer.parseInt(operatorCount.getString("count(*)"))<=0){
-            ObjectNode errorJson = Json.newObject();
-            errorJson.put("status","error");
-            errorJson.put("message","No operator exists with the passed operator code");
-            return notFound(errorJson);
-        }
-        else {
-            SqlQuery query = Ebean.createSqlQuery("SELECT flight_no FROM flight WHERE flight.operator_id = (select id from operator where operator.op_code=:operator);");
-            query.setParameter("operator",""+operator);
-            List<SqlRow> flights = query.findList();
+    public Result getFlights(String operator) throws Exception {
+        ActorSystem system = ActorSystem.create();
+        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
+        Future<Object> askOperatorFlights = Patterns.ask(bookingActor, new BookingActorProtocol.OperatorFlights(operator),timeout);
+        if(Await.result(askOperatorFlights,timeout.duration()) instanceof List){
             ObjectNode flightsJson = Json.newObject();
             flightsJson.put("status","success");
-            flightsJson.put("flights",""+flights);
+            flightsJson.put("flights",""+(List)Await.result(askOperatorFlights,timeout.duration()));
             return ok(flightsJson);
+        }
+        else {
+            ObjectNode flightsJson = Json.newObject();
+            flightsJson.put("status","error");
+            flightsJson.put("flights",""+(String)Await.result(askOperatorFlights,timeout.duration()));
+            return notFound(flightsJson);
         }
     }
 
     public Result getFlight(String operator, String flight) throws Exception {
-        /*ActorSystem system = ActorSystem.create();
-        ActorRef aaActor = system.actorOf(AAActor.getProps(), "AAActor");
-        Timeout timeout = new Timeout(20, TimeUnit.SECONDS);
-        Future<Object> askSeats = Patterns.ask(aaActor, new AirlineActorProtocol.Seats("AA001"), 5000);
-        String noOfSeats = (String) Await.result(askSeats, timeout.duration());
-        System.out.println("No Of Seats = "+noOfSeats);
-
-        Future<Object> requestHold = Patterns.ask(aaActor, new AirlineActorProtocol.HoldMessage("AA001"), timeout);
-        String holdReply = (String) Await.result(requestHold, timeout.duration());
-        System.out.println("Hold Reply = "+holdReply);
-        long bookingId = Long.parseLong(""+holdReply.charAt(holdReply.length()-1));
-        Thread.sleep(3000);
-
-        Future<Object> requestConfirm = Patterns.ask(aaActor, new AirlineActorProtocol.ConfirmMessage(""+bookingId), timeout);
-        String confirmReply = (String) Await.result(requestConfirm,timeout.duration());
-        System.out.println("Confirm Reply = "+confirmReply);
-
-*/
-        SqlQuery countFlightQuery = Ebean.createSqlQuery("SELECT COUNT(*) FROM flight where flight.flight_no=:flightNo and flight.operator_id=(select operator.id from operator where operator.op_code=:opCode);");
-        countFlightQuery.setParameter("flightNo",""+flight);
-        countFlightQuery.setParameter("opCode",""+operator);
-        SqlRow flightCount = countFlightQuery.findOne();
-        if(Integer.parseInt(flightCount.getString("count(*)"))<=0){
-            ObjectNode errorJson = Json.newObject();
-            errorJson.put("status","error");
-            errorJson.put("message","Flight not found");
-            return notFound(errorJson);
+        ActorSystem system = ActorSystem.create();
+        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
+        Future<Object> askFlightSeats = Patterns.ask(bookingActor, new BookingActorProtocol.FlightSeats(operator,flight),timeout);
+        String askSeatsResponse = (String)Await.result(askFlightSeats,timeout.duration());
+        if(StringUtils.isNumeric(askSeatsResponse)){
+            ObjectNode seatsJson = Json.newObject();
+            seatsJson.put("status","success");
+            seatsJson.put("seats",""+askSeatsResponse);
+            return ok(seatsJson);
         }
         else{
-            SqlQuery flightQuery = Ebean.createSqlQuery("SELECT available_seats FROM flight where flight.flight_no=:flightNo and flight.operator_id=(select operator.id from operator where operator.op_code=:opCode);");
-            flightQuery.setParameter("flightNo",""+flight);
-            flightQuery.setParameter("opCode",""+operator);
-            SqlRow flightResult = flightQuery.findOne();
-            ObjectNode flightJson = Json.newObject();
-            flightJson.put("status","success");
-            flightJson.put("seats",""+flightResult.getString("available_seats"));
-            return ok(flightJson);
+            ObjectNode seatsJson = Json.newObject();
+            seatsJson.put("status","error");
+            seatsJson.put("message",""+askSeatsResponse);
+            return ok(seatsJson);
         }
     }
     public Result createTrip(String from, String to) throws Exception {
         ActorSystem system = ActorSystem.create();
         ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
-        Timeout timeout = new Timeout(20, TimeUnit.SECONDS);
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askTrip = Patterns.ask(bookingActor, new BookingActorProtocol.BookTrip(from,to),timeout);
         String askTripResponse = (String)Await.result(askTrip,timeout.duration());
         System.out.println(askTripResponse);
+        if(StringUtils.isNumeric(askTripResponse)){
+            ObjectNode tripJson = Json.newObject();
+            tripJson.put("status","success");
+            tripJson.put("tripID",""+askTripResponse);
+            return ok(tripJson);
+        }
+        else{
+            ObjectNode tripJson = Json.newObject();
+            tripJson.put("status","error");
+            tripJson.put("message",""+askTripResponse);
+            return notFound(tripJson);
+        }
+    }
 
-        ObjectNode tripJson = Json.newObject();
-        tripJson.put("status","success");
-        tripJson.put("tripId",""+askTripResponse);
-        return ok(tripJson);
+    public Result getTrips() throws Exception {
+        ActorSystem system = ActorSystem.create();
+        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
+        Future<Object> askTrips = Patterns.ask(bookingActor, new BookingActorProtocol.AllTrips(),timeout);
+        List<Long> askTripsResponse = (List<Long>) Await.result(askTrips,timeout.duration());
+        ObjectNode tripsJson = Json.newObject();
+        tripsJson.put("status","success");
+        tripsJson.put("trips",""+askTripsResponse);
+        return ok(tripsJson);
+    }
+
+    public Result getTrip(String tripID) throws Exception {
+        ActorSystem system = ActorSystem.create();
+        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+        Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
+        Future<Object> askTrip = Patterns.ask(bookingActor, new BookingActorProtocol.SingleTrip(tripID),timeout);
+        if(Await.result(askTrip,timeout.duration()) instanceof  List){
+            List<String> askTripResponse = (List<String>) Await.result(askTrip,timeout.duration());
+            ObjectNode tripJson = Json.newObject();
+            tripJson.put("status","success");
+            tripJson.put("segments",""+askTripResponse);
+            return ok(tripJson);
+        }
+        else {
+            String askTripResponse = (String) Await.result(askTrip,timeout.duration());
+            ObjectNode tripJson = Json.newObject();
+            tripJson.put("status","error");
+            tripJson.put("message",""+askTripResponse);
+            return ok(tripJson);
+        }
+
     }
 
 
