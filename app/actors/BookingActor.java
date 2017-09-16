@@ -6,6 +6,8 @@ import akka.actor.AbstractActor;
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.actor.Props;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 import akka.pattern.Patterns;
 import akka.util.Timeout;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,6 +27,10 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class BookingActor extends AbstractActor {
+    private static ActorRef aaActor;
+    private static ActorRef baActor;
+    private static ActorRef caActor;
+    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     @Override
     public Receive createReceive() {
         return receiveBuilder().match(BookingActorProtocol.BookTrip.class,this::bookTrip)
@@ -61,17 +67,18 @@ public class BookingActor extends AbstractActor {
         }
     }
 
-    public static Props getProps(){
+    public static Props getProps(ActorRef aaActor, ActorRef baActor, ActorRef caActor){
+        BookingActor.aaActor = aaActor;
+        BookingActor.baActor = baActor;
+        BookingActor.caActor = caActor;
         return Props.create(BookingActor.class);
     }
 
     private void getFlightSeats(BookingActorProtocol.FlightSeats flightSeats) throws Exception {
-        ActorSystem system = ActorSystem.create();
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
 
-        ActorRef aaActor = system.actorOf(AAActor.getProps(), "AAActor");
-        ActorRef caActor = system.actorOf(CAActor.getProps(), "CAActor");
-        ActorRef baActor = system.actorOf(BAActor.getProps(), "BAActor");
+
         String noOfSeats ="";
 
         if(flightSeats.operator.equals("AA")){
@@ -121,12 +128,10 @@ public class BookingActor extends AbstractActor {
     private void bookTrip(BookingActorProtocol.BookTrip bookTrip) throws Exception {
         String source = bookTrip.getSource();
         String destination = bookTrip.getDestination();
-        ActorSystem system = ActorSystem.create();
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
 
-        ActorRef aaActor = system.actorOf(AAActor.getProps(), "AAActor");
-        ActorRef caActor = system.actorOf(CAActor.getProps(), "CAActor");
-        ActorRef baActor = system.actorOf(BAActor.getProps(), "BAActor");
+
 
 
         Future<Object> askSeats = Patterns.ask(aaActor, new AirlineActorProtocol.Seats("AA001"),timeout);
@@ -150,6 +155,7 @@ public class BookingActor extends AbstractActor {
                     Trip trip = createTrip(source,destination);
                     long bookingId = holdSeat("AA001",trip,aaActor,timeout);
                     long confirmationId = confirmSeat("AA001",trip,aaActor,timeout,bookingId);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else{
@@ -163,6 +169,7 @@ public class BookingActor extends AbstractActor {
                     long bookingId2 = holdSeat("CA002",trip,caActor,timeout);
                     long confirmationId1 = confirmSeat("AA001",trip,aaActor,timeout,bookingId1);
                     long confirmationId2 = confirmSeat("CA002",trip,caActor,timeout,bookingId2);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else{
@@ -174,6 +181,7 @@ public class BookingActor extends AbstractActor {
                     Trip trip = createTrip(source,destination);
                     long bookingId1 = holdSeat("CA001",trip,caActor,timeout);
                     long confirmationId1 = confirmSeat("CA001",trip,caActor,timeout,bookingId1);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else if(Integer.parseInt(noOfSeatsAA001)>0 && Integer.parseInt(noOfSeatsBA001)>0){
@@ -183,6 +191,7 @@ public class BookingActor extends AbstractActor {
 
                     long confirmationId1 = confirmSeat("AA001",trip,aaActor,timeout,bookingId1);
                     long confirmationId2 = confirmSeat("BA001",trip,baActor,timeout,bookingId2);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else if(Integer.parseInt(noOfSeatsAA001)>0 && Integer.parseInt(noOfSeatsCA002)>0 && Integer.parseInt(noOfSeatsAA002)>0){
@@ -194,6 +203,7 @@ public class BookingActor extends AbstractActor {
                     long confirmationId1 = confirmSeat("AA001",trip,aaActor,timeout,bookingId1);
                     long confirmationId2 = confirmSeat("CA002",trip,caActor,timeout,bookingId2);
                     long confirmationId3 = confirmSeat("AA002",trip,aaActor,timeout,bookingId3);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else {
@@ -210,6 +220,7 @@ public class BookingActor extends AbstractActor {
                     Trip trip = createTrip(source,destination);
                     long bookingId1 = holdSeat("CA002",trip,caActor,timeout);
                     long confirmationId1 = confirmSeat("CA002",trip,caActor,timeout,bookingId1);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else {
@@ -221,6 +232,7 @@ public class BookingActor extends AbstractActor {
                     Trip trip = createTrip(source,destination);
                     long bookingId1 = holdSeat("BA001",trip,baActor,timeout);
                     long confirmationId1 = confirmSeat("BA001",trip,baActor,timeout,bookingId1);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else if(Integer.parseInt(noOfSeatsCA002)>0 && Integer.parseInt(noOfSeatsAA002)>0){
@@ -230,6 +242,7 @@ public class BookingActor extends AbstractActor {
 
                     long confirmationId1 = confirmSeat("CA002",trip,caActor,timeout,bookingId1);
                     long confirmationId2 = confirmSeat("AA002",trip,aaActor,timeout,bookingId2);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else {
@@ -246,6 +259,7 @@ public class BookingActor extends AbstractActor {
                     Trip trip = createTrip(source,destination);
                     long bookingId1 = holdSeat("AA002",trip,aaActor,timeout);
                     long confirmationId1 = confirmSeat("AA002",trip,aaActor,timeout,bookingId1);
+                    log.info("A trip has been booked with Trip ID:"+trip.id);
                     sender().tell(""+trip.id,self());
                 }
                 else {

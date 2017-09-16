@@ -35,4 +35,7 @@ public class AirlineActorProtocol {
             return bookingId;
         }
     }
+    public static class DebugConfirmFail{}
+    public static class DebugConfirmNoResponse{}
+    public static class DebugReset{}
 }

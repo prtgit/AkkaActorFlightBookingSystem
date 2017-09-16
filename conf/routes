@@ -19,3 +19,9 @@ POST     /trip/:from/:to                             controllers.FlightBookingCo
 GET     /trips                      controllers.FlightBookingController.getTrips()
 
 GET     /trips/:tripID              controllers.FlightBookingController.getTrip(tripID: String)
+
+POST    /actor/:airline/confirm_fail        controllers.FlightBookingController.confirmFail(airline: String)
+
+POST    /actor/:airline/confirm_no_response     controllers.FlightBookingController.confirmNoResponse(airline: String)
+
+POST    /actor/:airline/reset                   controllers.FlightBookingController.reset(airline: String)

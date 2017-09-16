@@ -3,6 +3,8 @@ package actors;
 import actorPrtocols.AirlineActorProtocol;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
+import akka.event.Logging;
+import akka.event.LoggingAdapter;
 import io.ebean.Ebean;
 import io.ebean.SqlQuery;
 import io.ebean.SqlRow;
@@ -13,13 +15,36 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 public class CAActor extends AbstractActor {
+    private final LoggingAdapter log = Logging.getLogger(getContext().getSystem(), this);
     private Timer timer = new Timer();
+    private boolean confirmFailFlag = false, confirmNoResponseFlag = false;
     public static Props getProps(){
         return Props.create(CAActor.class);
     }
     @Override
     public Receive createReceive() {
-        return receiveBuilder().match(AirlineActorProtocol.ConfirmMessage.class, this::bookTicket).match(AirlineActorProtocol.Seats.class, this::getSeats).match(AirlineActorProtocol.HoldMessage.class, this::holdTicket).build();
+        return receiveBuilder().match(AirlineActorProtocol.ConfirmMessage.class, this::bookTicket)
+                .match(AirlineActorProtocol.Seats.class, this::getSeats)
+                .match(AirlineActorProtocol.HoldMessage.class, this::holdTicket)
+                .match(AirlineActorProtocol.DebugConfirmFail.class,this::setConfirmFail)
+                .match(AirlineActorProtocol.DebugConfirmNoResponse.class, this:: setConfirmNoResponse)
+                .match(AirlineActorProtocol.DebugReset.class, this::resetFlags)
+                .build();
+    }
+
+    private void setConfirmNoResponse(AirlineActorProtocol.DebugConfirmNoResponse debugConfirmNoResponse) {
+        confirmNoResponseFlag = true;
+        log.debug("No response flag has been set for CAActor");
+    }
+    private void resetFlags(AirlineActorProtocol.DebugReset debugReset) {
+        confirmNoResponseFlag = false;
+        confirmFailFlag = false;
+        log.debug("All flags have been reset for CAActor");
+    }
+
+    private  void setConfirmFail(AirlineActorProtocol.DebugConfirmFail debugConfirmFail) {
+        confirmFailFlag = true;
+        log.debug("Confirm fail flag has been set for CAActor");
     }
 
     private void holdTicket(AirlineActorProtocol.HoldMessage holdMessage) {
@@ -28,29 +53,37 @@ public class CAActor extends AbstractActor {
         booking.status = "On Hold";
         booking.trip = holdMessage.getTrip();
         booking.save();
+        log.info("A seat has been kept on hold with booking ID:"+booking.id);
         sender().tell(""+booking.id,self());
         startTimer(booking.id);
     }
 
     private void bookTicket(AirlineActorProtocol.ConfirmMessage confirmMessage) {
-        stopTimer();
-        SqlQuery checkStatusQuery = Ebean.createSqlQuery("SELECT status FROM booking where booking.id=:bookingId;");
-        checkStatusQuery.setParameter("bookingId",""+confirmMessage.getBookingId());
-        SqlRow flightCount = checkStatusQuery.findOne();
-        String bookingStatus = flightCount.getString("status");
-        if(bookingStatus.equals("On Hold")){
-            SqlUpdate updateBookingStatus = Ebean.createSqlUpdate("UPDATE booking SET status='Confirmed' WHERE booking.id =:bookingId ");
-            updateBookingStatus.setParameter("bookingId",confirmMessage.getBookingId());
-            updateBookingStatus.execute();
+        if(confirmFailFlag){
+            sender().tell("Fail",self());
+        }
+        if(!confirmFailFlag && !confirmNoResponseFlag){
+            stopTimer();
+            SqlQuery checkStatusQuery = Ebean.createSqlQuery("SELECT status FROM booking where booking.id=:bookingId;");
+            checkStatusQuery.setParameter("bookingId",""+confirmMessage.getBookingId());
+            SqlRow flightCount = checkStatusQuery.findOne();
+            String bookingStatus = flightCount.getString("status");
+            if(bookingStatus.equals("On Hold")){
+                SqlUpdate updateBookingStatus = Ebean.createSqlUpdate("UPDATE booking SET status='Confirmed' WHERE booking.id =:bookingId ");
+                updateBookingStatus.setParameter("bookingId",confirmMessage.getBookingId());
+                updateBookingStatus.execute();
 
-            SqlUpdate countFlightQuery = Ebean.createSqlUpdate("UPDATE flight set available_seats = available_seats - 1 where flight_no=(select flight_no from booking where booking.id=:bookingId) and available_seats > 0;");
-            countFlightQuery.setParameter("bookingId",""+confirmMessage.getBookingId());
-            countFlightQuery.execute();
-            sender().tell(""+confirmMessage.getBookingId(),self());
+                SqlUpdate countFlightQuery = Ebean.createSqlUpdate("UPDATE flight set available_seats = available_seats - 1 where flight_no=(select flight_no from booking where booking.id=:bookingId) and available_seats > 0;");
+                countFlightQuery.setParameter("bookingId",""+confirmMessage.getBookingId());
+                countFlightQuery.execute();
+                log.info("A seat has been confirmed with booking ID:"+confirmMessage.getBookingId());
+                sender().tell(""+confirmMessage.getBookingId(),self());
+            }
+            else{
+                sender().tell("The seat is not on hold",self());
+            }
         }
-        else{
-            sender().tell("The seat is not on hold",self());
-        }
+
     }
 
 
@@ -71,7 +104,8 @@ public class CAActor extends AbstractActor {
             int n=0;
             @Override
             public void run(){
-                if(++n == 15){
+                if(++n == 15){   // Time limit of timer in seconds
+                    log.error("The hold on the seat with id "+bookingId+" has timed out");
                     SqlUpdate deleteBooking = Ebean.createSqlUpdate("DELETE FROM booking WHERE booking.id=:bookingId");
                     deleteBooking.setParameter("bookingId",bookingId);
                     deleteBooking.execute();

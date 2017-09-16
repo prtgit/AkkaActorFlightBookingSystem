@@ -3,14 +3,16 @@ package controllers;
 import actorPrtocols.AirlineActorProtocol;
 import actorPrtocols.BookingActorProtocol;
 import actors.AAActor;
+import actors.BAActor;
 import actors.BookingActor;
+import actors.CAActor;
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.pattern.Patterns;
 import akka.util.Timeout;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.ebean.*;
-import models.Operator;
+import com.google.inject.Inject;
+import models.Booking;
 import org.apache.commons.lang3.StringUtils;
 import play.libs.Json;
 import play.mvc.Controller;
@@ -18,16 +20,25 @@ import play.mvc.Result;
 import scala.concurrent.Await;
 import scala.concurrent.Future;
 
+
+
 import static akka.pattern.Patterns.ask;
-import java.util.ArrayList;
+
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class FlightBookingController extends Controller {
+    final ActorRef aaActor, baActor, caActor, bookingActor;
+    @Inject
+    public FlightBookingController(ActorSystem system) {
+        aaActor = system.actorOf(AAActor.getProps());
+        baActor = system.actorOf(BAActor.getProps());
+        caActor = system.actorOf(CAActor.getProps());
+        bookingActor =system.actorOf(BookingActor.getProps(aaActor,baActor,caActor));
+    }
 
     public Result getFlightOperators() throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askOperatorts = Patterns.ask(bookingActor, new BookingActorProtocol.Operators(),timeout);
         ObjectNode operatorsJson = Json.newObject();
@@ -37,8 +48,7 @@ public class FlightBookingController extends Controller {
     }
 
     public Result getFlights(String operator) throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askOperatorFlights = Patterns.ask(bookingActor, new BookingActorProtocol.OperatorFlights(operator),timeout);
         if(Await.result(askOperatorFlights,timeout.duration()) instanceof List){
@@ -56,8 +66,7 @@ public class FlightBookingController extends Controller {
     }
 
     public Result getFlight(String operator, String flight) throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askFlightSeats = Patterns.ask(bookingActor, new BookingActorProtocol.FlightSeats(operator,flight),timeout);
         String askSeatsResponse = (String)Await.result(askFlightSeats,timeout.duration());
@@ -75,8 +84,7 @@ public class FlightBookingController extends Controller {
         }
     }
     public Result createTrip(String from, String to) throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askTrip = Patterns.ask(bookingActor, new BookingActorProtocol.BookTrip(from,to),timeout);
         String askTripResponse = (String)Await.result(askTrip,timeout.duration());
@@ -96,8 +104,7 @@ public class FlightBookingController extends Controller {
     }
 
     public Result getTrips() throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askTrips = Patterns.ask(bookingActor, new BookingActorProtocol.AllTrips(),timeout);
         List<Long> askTripsResponse = (List<Long>) Await.result(askTrips,timeout.duration());
@@ -108,8 +115,7 @@ public class FlightBookingController extends Controller {
     }
 
     public Result getTrip(String tripID) throws Exception {
-        ActorSystem system = ActorSystem.create();
-        ActorRef bookingActor = system.actorOf(BookingActor.getProps(), "BookingActor");
+
         Timeout timeout = new Timeout(50, TimeUnit.SECONDS);
         Future<Object> askTrip = Patterns.ask(bookingActor, new BookingActorProtocol.SingleTrip(tripID),timeout);
         if(Await.result(askTrip,timeout.duration()) instanceof  List){
@@ -128,7 +134,87 @@ public class FlightBookingController extends Controller {
         }
 
     }
+    public Result confirmFail(String airline) throws Exception {
 
+        Timeout timeout = new Timeout(20, TimeUnit.SECONDS);
+        ActorRef actorRef = null;
+        if(airline.equals("AA")){
+            actorRef = aaActor;
+        }
+        else if(airline.equals("BA")){
+            actorRef = baActor;
+        }
+        else if(airline.equals("CA")){
+            actorRef = caActor;
+        }
+        if(actorRef != null){
+            Future<Object> debugAsk = Patterns.ask(actorRef, new AirlineActorProtocol.DebugConfirmFail(),timeout);
+            String result = (String)Await.result(debugAsk, timeout.duration());
+            System.out.println("Confirm Fail Response = "+result);
+            ObjectNode confirmFailJson = Json.newObject();
+            confirmFailJson.put("status","success");
+            return ok(confirmFailJson);
+        }
+        else{
+            ObjectNode confirmFailJson = Json.newObject();
+            confirmFailJson.put("status","Airline not found");
+            return notFound(confirmFailJson);
+        }
+    }
+    public Result confirmNoResponse(String airline)throws Exception{
+
+        Timeout timeout = new Timeout(20, TimeUnit.SECONDS);
+        ActorRef actorRef = null;
+        if(airline.equals("AA")){
+            actorRef = aaActor;
+        }
+        else if(airline.equals("BA")){
+            actorRef = baActor;
+        }
+        else if(airline.equals("CA")){
+            actorRef = caActor;
+        }
+        if(actorRef != null){
+            Future<Object> debugAsk = Patterns.ask(actorRef, new AirlineActorProtocol.DebugConfirmNoResponse(),timeout);
+            /*String result = (String)Await.result(debugAsk, timeout.duration());
+            System.out.println("Confirm NoResponse reply = "+result);*/
+            ObjectNode confirmNoResponse = Json.newObject();
+            confirmNoResponse.put("status","success");
+            return ok(confirmNoResponse);
+        }
+        else{
+            ObjectNode confirmNoResponse = Json.newObject();
+            confirmNoResponse.put("status","Airline not found");
+            return notFound(confirmNoResponse);
+        }
+    }
+    public Result reset(String airline) throws Exception{
+
+        Timeout timeout = new Timeout(20, TimeUnit.SECONDS);
+        ActorRef actorRef = null;
+        if(airline.equals("AA")){
+            actorRef = aaActor;
+        }
+        else if(airline.equals("BA")){
+            actorRef = baActor;
+        }
+        else if(airline.equals("CA")){
+            actorRef = caActor;
+        }
+        if(actorRef != null){
+            Future<Object> debugAsk = Patterns.ask(actorRef, new AirlineActorProtocol.DebugReset(),timeout);
+            /*String result = (String)Await.result(debugAsk, timeout.duration());
+            System.out.println("Confirm NoResponse reply = "+result);*/
+            ObjectNode resetJson = Json.newObject();
+            resetJson.put("status","success");
+            return ok(resetJson);
+        }
+        else{
+            ObjectNode resetJson = Json.newObject();
+            resetJson.put("status","Airline not found");
+            return notFound(resetJson);
+        }
+    }
 
 
 
